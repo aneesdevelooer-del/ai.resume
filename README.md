@@ -56,7 +56,7 @@ The format score is fully deterministic (same resume, same score). The AI parts 
 
 ### Choosing the Gemini model
 
-The default is `gemini-2.5-flash`. You can change it in the sidebar, or set `GEMINI_MODEL` (env var or secret). Google retires and releases models regularly. If you see a "model not found" error, check the current list at <https://ai.google.dev/gemini-api/docs/models> and use any current Flash model name.
+The default is `gemini-3.7-flash`. (`gemini-2.5-flash` was shut down by Google on 16 Oct 2026 and now returns a 404 "model not found".) If that name ever fails, try `gemini-3.6-flash` or `gemini-3.5-flash`. You can change it in the sidebar, or set `GEMINI_MODEL` (env var or secret). Google retires and releases models regularly. If you see a "model not found" error, check the current list at <https://ai.google.dev/gemini-api/docs/models> and use any current Flash model name.
 
 ## Push to GitHub
 
@@ -110,4 +110,4 @@ The default is `gemini-2.5-flash`. You can change it in the sidebar, or set `GEM
 
 - Resume text is sent to Google's Gemini API for analysis. The app itself does not store files or text.
 - Multi-column layouts, tables, text boxes and graphics can break real ATS parsers. Use the "Extracted text" tab to spot problems.
-- Scores are guidance, not a guarantee of how any employer's system will rank you.# ai.resume
+- Scores are guidance, not a guarantee of how any employer's system will rank you.
