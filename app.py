@@ -23,7 +23,7 @@ import streamlit as st
 # --------------------------------------------------------------------------- #
 # Configuration
 # --------------------------------------------------------------------------- #
-DEFAULT_MODEL = "gemini-2.5-flash"  # override with GEMINI_MODEL or the sidebar
+DEFAULT_MODEL = "gemini-3.7-flash"  # override with GEMINI_MODEL or the sidebar
 MAX_FILE_MB = 5
 MAX_RESUME_CHARS = 30_000
 MAX_JD_CHARS = 10_000
@@ -421,7 +421,7 @@ def friendly_api_error(exc: Exception) -> str:
     if "429" in low or "quota" in low or "resource_exhausted" in low or "rate limit" in low:
         return "Gemini rate limit or quota reached. Wait a minute and try again, or use another key."
     if "404" in low or "not found" in low:
-        return "Gemini model not found. Change the model name in the sidebar (e.g. gemini-2.5-flash)."
+        return "Gemini model not found. Change the model name in the sidebar (e.g. gemini-3.7-flash or gemini-3.5-flash)."
     return f"Gemini request failed: {msg[:300]}"
 
 
