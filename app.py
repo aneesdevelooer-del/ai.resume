@@ -16,6 +16,7 @@ import io
 import json
 import os
 import re
+import time
 from typing import Any
 
 import streamlit as st
@@ -24,6 +25,7 @@ import streamlit as st
 # Configuration
 # --------------------------------------------------------------------------- #
 DEFAULT_MODEL = "gemini-3.7-flash"  # override with GEMINI_MODEL or the sidebar
+FALLBACK_MODELS = ["gemini-3.6-flash", "gemini-3.5-flash"]  # tried if the main model is busy/missing
 MAX_FILE_MB = 5
 MAX_RESUME_CHARS = 30_000
 MAX_JD_CHARS = 10_000
@@ -413,31 +415,67 @@ def normalize_ai(raw: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def is_transient(exc: Exception) -> bool:
+    """Temporary server-side problems worth retrying (503 overloaded, timeouts...)."""
+    low = str(exc).lower()
+    return bool(re.search(r"\b50[0234]\b", low)) or any(
+        m in low for m in ("unavailable", "overloaded", "high demand", "timed out", "timeout", "deadline")
+    )
+
+
+def is_model_missing(exc: Exception) -> bool:
+    low = str(exc).lower()
+    return "404" in low or "not found" in low or "no longer available" in low
+
+
 def friendly_api_error(exc: Exception) -> str:
     msg = str(exc)
     low = msg.lower()
+    if is_transient(exc):
+        return "Gemini's servers are busy right now (temporary). Please wait a minute and click Analyze again."
     if "api key" in low or "api_key" in low or "401" in low or "403" in low or "permission" in low:
         return "Gemini rejected the API key. Check that it is correct and enabled."
     if "429" in low or "quota" in low or "resource_exhausted" in low or "rate limit" in low:
         return "Gemini rate limit or quota reached. Wait a minute and try again, or use another key."
-    if "404" in low or "not found" in low:
+    if is_model_missing(exc):
         return "Gemini model not found. Change the model name in the sidebar (e.g. gemini-3.7-flash or gemini-3.5-flash)."
     return f"Gemini request failed: {msg[:300]}"
 
 
-def analyze_with_gemini(api_key: str, model: str, resume_text: str, job_description: str) -> dict[str, Any]:
+def analyze_with_gemini(
+    api_key: str, model: str, resume_text: str, job_description: str, sleep=time.sleep
+) -> dict[str, Any]:
+    """Call Gemini with retries (busy servers / bad JSON) and fallback models."""
     prompt = build_prompt(resume_text, job_description)
-    last_error: Exception | None = None
-    for attempt in range(2):  # one retry on malformed output
-        try:
-            raw_text = call_gemini(api_key, model, prompt)
-        except Exception as exc:
-            raise AppError(friendly_api_error(exc)) from exc
-        try:
-            return normalize_ai(parse_json(raw_text))
-        except (ValueError, json.JSONDecodeError) as exc:  # JSONDecodeError subclasses ValueError
-            last_error = exc
-    raise AppError("Gemini returned an unreadable response twice. Please try again.") from last_error
+    models = [model] + [m for m in FALLBACK_MODELS if m != model]
+    last_api_error: Exception | None = None
+    last_parse_error: Exception | None = None
+
+    for current in models:
+        for attempt in range(3):
+            try:
+                raw_text = call_gemini(api_key, current, prompt)
+            except Exception as exc:
+                last_api_error, last_parse_error = exc, None
+                if is_transient(exc):
+                    if attempt < 2:
+                        sleep(2 * (attempt + 1))  # 2s, then 4s
+                        continue
+                    break  # still busy -> try the next model
+                if is_model_missing(exc):
+                    break  # this model is gone -> try the next model
+                raise AppError(friendly_api_error(exc)) from exc  # bad key, quota, etc.
+            try:
+                result = normalize_ai(parse_json(raw_text))
+            except ValueError as exc:  # JSONDecodeError is a ValueError
+                last_parse_error, last_api_error = exc, None
+                continue  # malformed output: retry
+            result["model_used"] = current
+            return result
+
+    if last_api_error is not None:
+        raise AppError(friendly_api_error(last_api_error)) from last_api_error
+    raise AppError("Gemini returned an unreadable response several times. Please try again.") from last_parse_error
 
 
 # --------------------------------------------------------------------------- #
@@ -552,6 +590,8 @@ def render_result(result: dict[str, Any]) -> None:
     with top_r:
         if ai["detected_role"]:
             st.caption(f"Detected target role: **{ai['detected_role']}**")
+        if ai.get("model_used"):
+            st.caption(f"Analyzed with model: `{ai['model_used']}`")
         st.write(ai["summary"])
 
     cols = st.columns(3 if result["has_jd"] else 2)
